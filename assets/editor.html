@@ -52,7 +52,20 @@ main{flex:1;display:flex;flex-direction:column;min-width:0;padding:16px;gap:10px
 .row{display:flex;gap:10px}
 .row > *{flex:1}
 .row .narrow{flex:0 0 160px}
-.editor{flex:1;display:flex;flex-direction:column;min-height:0}
+.editor{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+.editor.dragover::after{
+  content:"松开即可插入图片";
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(37,99,235,.10);border:2px dashed var(--accent);border-radius:10px;
+  color:var(--accent);font-weight:600;pointer-events:none;z-index:5;
+}
+.draft-toggle{flex:0 0 auto;display:flex;align-items:center;gap:6px;font-size:14px;
+  color:var(--muted);white-space:nowrap;cursor:pointer;user-select:none}
+.draft-toggle input{width:auto;margin:0}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;
+  background:var(--code-bg);color:var(--muted);margin-left:6px;vertical-align:1px}
+.badge.draft{background:#fef3c7;color:#92400e}
+@media (prefers-color-scheme:dark){ .badge.draft{background:#422006;color:#fbbf24} }
 #body{flex:1;min-height:260px;resize:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   font-size:14px;line-height:1.75}
 #preview{flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px;
@@ -101,6 +114,7 @@ main{flex:1;display:flex;flex-direction:column;min-width:0;padding:16px;gap:10px
     <div class="row">
       <input id="category" class="narrow" placeholder="分类（可留空）" autocomplete="off">
       <input id="tags" placeholder="标签，用逗号分隔（可留空）" autocomplete="off">
+      <label class="draft-toggle" title="草稿不会出现在线上博客里"><input type="checkbox" id="draft"> 草稿</label>
     </div>
 
     <div class="editor">
@@ -116,7 +130,7 @@ main{flex:1;display:flex;flex-direction:column;min-width:0;padding:16px;gap:10px
       </div>
       <div class="status" id="status"></div>
     </div>
-    <div class="hint">提示：Ctrl+S 保存。保存只写入 posts 目录，「发布到 GitHub」才会更新线上站点（约 1～2 分钟生效）。</div>
+    <div class="hint">提示：Ctrl+S 保存；图片可以直接拖进来或 Ctrl+V 粘贴。保存只写入 posts 目录，「发布到 GitHub」才会更新线上站点（约 1～2 分钟生效）。勾选「草稿」的文章不会被发布。</div>
   </main>
 </div>
 
@@ -159,9 +173,18 @@ async function refreshList(selectSlug) {
   for (const p of posts) {
     const li = document.createElement('li');
     li.className = p.slug === (selectSlug ?? current) ? 'active' : '';
-    li.innerHTML = '<span></span><span class="d"></span>';
-    li.children[0].textContent = p.title;
-    li.children[1].textContent = p.date || '';
+    const t = document.createElement('span');
+    t.textContent = p.title;
+    if (p.draft) {
+      const b = document.createElement('span');
+      b.className = 'badge draft';
+      b.textContent = '草稿';
+      t.appendChild(b);
+    }
+    const d = document.createElement('span');
+    d.className = 'd';
+    d.textContent = p.date || '';
+    li.append(t, d);
     li.onclick = () => loadPost(p.slug);
     ul.appendChild(li);
   }
@@ -177,9 +200,10 @@ async function loadPost(slug) {
   $('category').value = p.category || '';
   $('tags').value = (p.tags || []).join(', ');
   $('body').value = p.body || '';
+  $('draft').checked = !!p.draft;
   stopPreview();
   await refreshList(slug);
-  setStatus('已载入：' + slug, 'ok');
+  setStatus('已载入：' + slug + (p.draft ? '（草稿）' : ''), 'ok');
 }
 
 function newPost() {
@@ -188,6 +212,7 @@ function newPost() {
   $('category').value = '';
   $('tags').value = '';
   $('body').value = '';
+  $('draft').checked = false;
   stopPreview();
   refreshList(null);
   $('title').focus();
@@ -203,6 +228,7 @@ async function save() {
     category: $('category').value.trim(),
     tags: $('tags').value.split(',').map(s => s.trim()).filter(Boolean),
     body: $('body').value,
+    draft: $('draft').checked,
   };
 
   try {
@@ -284,6 +310,59 @@ async function publish() {
     $('btnPublish').disabled = false;
   }
 }
+
+/* ---------------- 图片：拖拽 / 粘贴 ---------------- */
+
+function insertAtCursor(text) {
+  const ta = $('body');
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? start;
+  const before = ta.value.slice(0, start);
+  const after = ta.value.slice(end);
+  const pad = before && !before.endsWith('\n') ? '\n\n' : '';
+  const block = pad + text + '\n';
+  ta.value = before + block + after;
+  const pos = (before + block).length;
+  ta.selectionStart = ta.selectionEnd = pos;
+  ta.focus();
+}
+
+async function uploadImage(file) {
+  if (!file || !file.type.startsWith('image/')) { setStatus('只支持图片文件。', 'err'); return; }
+  if (file.size > 8 * 1024 * 1024) { setStatus('图片超过 8MB，请先压缩再传。', 'err'); return; }
+  try {
+    setStatus('上传图片中…');
+    const data = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(new Error('读取文件失败'));
+      fr.readAsDataURL(file);
+    });
+    const r = await api('/api/upload', { method: 'POST', body: JSON.stringify({ name: file.name, data }) });
+    insertAtCursor(r.markdown);
+    setStatus('已插入图片：' + r.file + '（保存后生效）', 'ok');
+  } catch (e) {
+    setStatus('上传失败：' + e.message, 'err');
+  }
+}
+
+const editorEl = document.querySelector('.editor');
+$('body').addEventListener('dragover', (e) => { e.preventDefault(); editorEl.classList.add('dragover'); });
+$('body').addEventListener('dragleave', () => editorEl.classList.remove('dragover'));
+$('body').addEventListener('drop', (e) => {
+  e.preventDefault();
+  editorEl.classList.remove('dragover');
+  const f = e.dataTransfer?.files?.[0];
+  if (f) uploadImage(f);
+});
+$('body').addEventListener('paste', (e) => {
+  for (const it of e.clipboardData?.items ?? []) {
+    if (it.type.startsWith('image/')) {
+      const f = it.getAsFile();
+      if (f) { e.preventDefault(); uploadImage(f); return; }
+    }
+  }
+});
 
 /* ---------------- 事件 ---------------- */
 

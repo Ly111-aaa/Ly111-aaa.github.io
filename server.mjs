@@ -29,6 +29,7 @@ import { parseFrontmatter, serializePost, slugify, renderMarkdown } from './scri
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIST = join(BLOG_ROOT, 'dist');
 const EDITOR_HTML = join(BLOG_ROOT, 'assets', 'editor.html');
+const IMAGES_DIR = join(BLOG_ROOT, 'assets', 'images');
 const TOKEN = randomBytes(16).toString('hex');
 
 /* ------------------------------------------------------------------ */
@@ -101,6 +102,7 @@ function readPostFile(slug) {
     category: data.category || '',
     tags: Array.isArray(data.tags) ? data.tags : data.tags ? [data.tags] : [],
     body: content.trim(),
+    draft: data.draft === true || data.draft === 'true',
   };
 }
 
@@ -282,7 +284,9 @@ const server = createServer(async (req, res) => {
         const posts = listPostFiles()
           .map((f) => {
             const p = readPostFile(f.slug);
-            return p ? { slug: p.slug, title: p.title, date: p.date, category: p.category, tags: p.tags } : null;
+            return p
+              ? { slug: p.slug, title: p.title, date: p.date, category: p.category, tags: p.tags, draft: p.draft }
+              : null;
           })
           .filter(Boolean);
         return sendJson(res, 200, { posts });
@@ -296,10 +300,31 @@ const server = createServer(async (req, res) => {
         const slug = uniqueSlug(slugify(title));
         writeFileSync(
           join(POSTS_DIR, slug + '.md'),
-          serializePost({ title, date: stamp(new Date()), category: b.category, tags: b.tags, body: b.body }),
+          serializePost({ title, date: stamp(new Date()), category: b.category, tags: b.tags, body: b.body, draft: b.draft }),
           'utf8',
         );
         return sendJson(res, 201, { ok: true, slug });
+      }
+
+      // 图片上传（编辑器拖拽 / 粘贴）
+      if (pathname === '/api/upload' && method === 'POST') {
+        const b = JSON.parse((await readBody(req, 12 * 1024 * 1024)) || '{}');
+        const m = /^data:(image\/(?:png|jpeg|gif|webp|svg\+xml));base64,([\s\S]+)$/.exec(String(b.data || ''));
+        if (!m) return sendJson(res, 400, { error: '只支持 PNG / JPG / GIF / WebP / SVG 图片' });
+
+        const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' }[m[1]];
+        const buf = Buffer.from(m[2], 'base64');
+        if (buf.length > 8 * 1024 * 1024) return sendJson(res, 400, { error: '图片不能超过 8MB' });
+
+        mkdirSync(IMAGES_DIR, { recursive: true });
+        const base = slugify(String(b.name || 'image').replace(/\.[^.]+$/, ''), 40);
+        let file = `${base}.${ext}`;
+        let i = 2;
+        while (existsSync(join(IMAGES_DIR, file))) file = `${base}-${i++}.${ext}`;
+        writeFileSync(join(IMAGES_DIR, file), buf);
+
+        // 文章页位于 /p/<slug>/，所以引用图片的相对路径要退两层
+        return sendJson(res, 200, { ok: true, file, markdown: `![${base}](../../assets/images/${file})` });
       }
 
       // Markdown 预览
@@ -340,6 +365,7 @@ const server = createServer(async (req, res) => {
               category: b.category,
               tags: b.tags,
               body: b.body,
+              draft: b.draft,
             }),
             'utf8',
           );

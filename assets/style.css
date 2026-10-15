@@ -64,7 +64,11 @@ article h1{margin:0 0 10px;font-size:28px;line-height:1.35}
 .content table{border-collapse:collapse;width:100%;font-size:14.5px}
 .content th,.content td{border:1px solid var(--border);padding:8px 12px;text-align:left}
 .content th{background:var(--code-bg);font-weight:600}
-.back{display:inline-block;margin-bottom:18px;font-size:14px}
+.back{display:inline-block;font-size:14px}
+.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+.gh{font-size:13px;color:var(--muted);border:1px solid var(--border);
+  border-radius:999px;padding:3px 12px;background:var(--card)}
+.gh:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
 footer{border-top:1px solid var(--border);padding:20px 0;color:var(--muted);font-size:13px}
 .empty{color:var(--muted);text-align:center;padding:48px 0}
 @media (max-width:640px){

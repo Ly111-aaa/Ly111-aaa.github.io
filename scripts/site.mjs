@@ -16,6 +16,45 @@ export { renderMarkdown, parseFrontmatter };
 export const SITE_TITLE = '我的博客';
 export const SITE_DESC = '用 Markdown 写作的静态博客';
 
+/** 仓库信息：用于生成「在 GitHub 上编辑」链接，让手机也能改文章。 */
+export const REPO = 'Ly111-aaa/Ly111-aaa.github.io';
+export const BRANCH = 'main';
+export const REPO_URL = `https://github.com/${REPO}`;
+
+/** 某篇文章在 GitHub 网页版编辑器里的地址。 */
+export function githubEditUrl(slug) {
+  return `${REPO_URL}/edit/${BRANCH}/posts/${encodeURIComponent(slug)}.md`;
+}
+
+/** GitHub 的「新建文件」地址，可预填文件名与内容模板。 */
+export function githubNewUrl(filename, value) {
+  const q = new URLSearchParams({ filename, value });
+  return `${REPO_URL}/new/${BRANCH}/posts?${q.toString()}`;
+}
+
+/**
+ * 「在 GitHub 上新建文章」的直达链接，预填好 frontmatter 模板。
+ * 手机上点一下就能开始写，无需本地环境。
+ */
+export function githubNewPostUrl() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  const filename = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-新文章.md`;
+  const value = [
+    '---',
+    'title: "新文章"',
+    `date: "${stamp}"`,
+    'category: "随笔"',
+    'tags: []',
+    '---',
+    '',
+    '正文写在这里。',
+    '',
+  ].join('\n');
+  return githubNewUrl(filename, value);
+}
+
 export function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -49,7 +88,7 @@ export function yamlString(s) {
  * 把一篇文章序列化回 Markdown（frontmatter + 正文）。
  * 与 parseFrontmatter 互为逆操作，供编辑器保存时使用。
  */
-export function serializePost({ title, date, category, tags, body }) {
+export function serializePost({ title, date, category, tags, body, draft }) {
   const tagList = (Array.isArray(tags) ? tags : String(tags ?? '').split(','))
     .map((t) => String(t).trim())
     .filter(Boolean);
@@ -59,6 +98,8 @@ export function serializePost({ title, date, category, tags, body }) {
   lines.push(`date: ${yamlString(date)}`);
   if (category) lines.push(`category: ${yamlString(category)}`);
   lines.push(`tags: [${tagList.join(', ')}]`);
+  // 只有草稿才写 draft 字段，正式文章保持文件干净
+  if (draft) lines.push('draft: true');
   lines.push('---', '');
   lines.push(String(body ?? '').replace(/\r\n?/g, '\n').replace(/\s+$/, ''));
   lines.push('');
@@ -78,8 +119,8 @@ export function slugify(s, maxLen = 50) {
   );
 }
 
-/** 读取 posts/ 下的全部 Markdown，按日期倒序返回。 */
-export function loadPosts(postsDir) {
+/** 读取 posts/ 下的全部 Markdown，按日期倒序返回。草稿默认不返回。 */
+export function loadPosts(postsDir, { includeDrafts = false } = {}) {
   if (!existsSync(postsDir)) return [];
   const posts = [];
   for (const file of readdirSync(postsDir)) {
@@ -113,10 +154,13 @@ export function loadPosts(postsDir) {
       tags: Array.isArray(data.tags) ? data.tags : data.tags ? [data.tags] : [],
       summary: summarize(content),
       body,
+      draft: data.draft === true || data.draft === 'true',
       mtime: mtimeMs,
     });
   }
-  return posts.sort((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
+  return posts
+    .filter((p) => includeDrafts || !p.draft)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
 }
 
 /* ------------------------------------------------------------------ */
@@ -180,7 +224,10 @@ export function renderIndex(posts) {
   return layout({
     title: SITE_TITLE,
     count: `共 ${posts.length} 篇文章`,
-    body: `<ul class="post-list">\n${items}\n</ul>`,
+    body: `<p class="actions"><a class="gh" href="${githubNewPostUrl()}" target="_blank" rel="noopener">在 GitHub 上新建文章</a></p>
+<ul class="post-list">
+${items}
+</ul>`,
   });
 }
 
@@ -193,7 +240,10 @@ export function renderPost(post, posts) {
     title: `${post.title} · ${SITE_TITLE}`,
     count: `共 ${posts.length} 篇文章`,
     depth: POST_DEPTH,
-    body: `<a class="back" href="${up(POST_DEPTH)}">← 返回首页</a>
+    body: `<div class="actions">
+  <a class="back" href="${up(POST_DEPTH)}">← 返回首页</a>
+  <a class="gh" href="${githubEditUrl(post.slug)}" target="_blank" rel="noopener">在 GitHub 上编辑</a>
+</div>
 <article>
   <h1>${escapeHtml(post.title)}</h1>
   <p class="meta"><span>${escapeHtml(post.date)}</span>${pills}</p>

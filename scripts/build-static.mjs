@@ -11,7 +11,7 @@
  *   node scripts/build-static.mjs --out public    换个输出目录
  */
 
-import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPosts, renderIndex, renderPost, POST_DEPTH } from './site.mjs';
@@ -42,7 +42,10 @@ export function buildSite(opts = {}) {
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
-  const posts = loadPosts(postsDir);
+  // 一次性读全部，再分出草稿 —— 草稿不进站点产物
+  const allPosts = loadPosts(postsDir, { includeDrafts: true });
+  const posts = allPosts.filter((p) => !p.draft);
+  const draftCount = allPosts.length - posts.length;
   const files = [];
 
   const write = (relPath, content) => {
@@ -63,17 +66,32 @@ export function buildSite(opts = {}) {
   copyFileSync(STYLE_FILE, join(outDir, 'style.css'));
   files.push('style.css');
 
+  // 图片资源：assets/images/ → dist/assets/images/
+  const imagesSrc = join(BLOG_ROOT, 'assets', 'images');
+  let imageCount = 0;
+  if (existsSync(imagesSrc)) {
+    for (const f of readdirSync(imagesSrc)) {
+      const src = join(imagesSrc, f);
+      if (!statSync(src).isFile()) continue;
+      const dest = join(outDir, 'assets', 'images', f);
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(src, dest);
+      files.push(`assets/images/${f}`);
+      imageCount++;
+    }
+  }
+
   // GitHub Pages 默认跑 Jekyll；.nojekyll 让它跳过处理，直接原样发布
   writeFileSync(join(outDir, '.nojekyll'), '', 'utf8');
   files.push('.nojekyll');
 
   if (!opts.quiet) {
     console.log(`构建完成: ${outDir}`);
-    console.log(`  文章 ${posts.length} 篇，文件 ${files.length} 个`);
+    console.log(`  文章 ${posts.length} 篇${draftCount ? `（另有 ${draftCount} 篇草稿未发布）` : ''}，图片 ${imageCount} 张，文件 ${files.length} 个`);
     for (const p of posts) console.log(`    p/${p.slug}/`);
   }
 
-  return { outDir, count: posts.length, files };
+  return { outDir, count: posts.length, drafts: draftCount, images: imageCount, files };
 }
 
 /* CLI */
