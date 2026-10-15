@@ -1,0 +1,57 @@
+name: Deploy blog to GitHub Pages
+
+# 推送到 main 就自动构建并发布；也可以在 Actions 页面手动触发。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# GitHub Pages 官方部署方式要求的权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署；不要打断正在进行的发布
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 本项目零依赖，所以没有 npm install 这一步，构建通常几秒完成
+      - name: Build static site
+        run: node scripts/build-static.mjs
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          # 首次运行时自动把仓库的 Pages 源设为 "GitHub Actions"。
+          # 若因权限失败，请手动到 Settings → Pages → Source 选择 GitHub Actions。
+          enablement: true
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
