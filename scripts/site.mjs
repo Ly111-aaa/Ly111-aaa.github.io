@@ -10,6 +10,9 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderMarkdown, parseFrontmatter } from './markdown.mjs';
 
+// 再导出底层原语，让 server.mjs 只需依赖 site.mjs 一个模块。
+export { renderMarkdown, parseFrontmatter };
+
 export const SITE_TITLE = '我的博客';
 export const SITE_DESC = '用 Markdown 写作的静态博客';
 
@@ -35,6 +38,44 @@ export function summarize(markdown, limit = 140) {
     .replace(/\s+/g, ' ')
     .trim();
   return plain.length > limit ? plain.slice(0, limit) + '…' : plain;
+}
+
+/** 生成安全带引号的 YAML 字符串值。 */
+export function yamlString(s) {
+  return `"${String(s ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ')}"`;
+}
+
+/**
+ * 把一篇文章序列化回 Markdown（frontmatter + 正文）。
+ * 与 parseFrontmatter 互为逆操作，供编辑器保存时使用。
+ */
+export function serializePost({ title, date, category, tags, body }) {
+  const tagList = (Array.isArray(tags) ? tags : String(tags ?? '').split(','))
+    .map((t) => String(t).trim())
+    .filter(Boolean);
+
+  const lines = ['---'];
+  lines.push(`title: ${yamlString(title)}`);
+  lines.push(`date: ${yamlString(date)}`);
+  if (category) lines.push(`category: ${yamlString(category)}`);
+  lines.push(`tags: [${tagList.join(', ')}]`);
+  lines.push('---', '');
+  lines.push(String(body ?? '').replace(/\r\n?/g, '\n').replace(/\s+$/, ''));
+  lines.push('');
+  return lines.join('\n');
+}
+
+/** 把标题转成安全的文件名片段（保留中文）。 */
+export function slugify(s, maxLen = 50) {
+  return (
+    String(s ?? '')
+      .trim()
+      .replace(/[\\/:*?"<>|\n\r\t]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, maxLen) || 'untitled'
+  );
 }
 
 /** 读取 posts/ 下的全部 Markdown，按日期倒序返回。 */
