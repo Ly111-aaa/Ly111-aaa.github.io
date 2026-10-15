@@ -12,6 +12,7 @@ rem  comments corrupt command parsing.
 rem ============================================================
 setlocal EnableExtensions
 set "URL=http://127.0.0.1:5173"
+set "EDIT=%URL%/edit"
 set "DRYRUN="
 if /i "%~1"=="check" set "DRYRUN=1"
 
@@ -47,8 +48,8 @@ exit /b 1
 
 :open
 if defined DRYRUN (
-  echo [blog] Server is up at %URL%
+  echo [blog] Server is up. Blog: %URL%  Editor: %EDIT%
   exit /b 0
 )
-start "" "%URL%"
+start "" "%EDIT%"
 exit /b 0
